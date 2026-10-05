@@ -15,7 +15,8 @@ RUN case "$CUTOUT_MODEL" in \
       u2netp) want=$U2NETP_SHA256 ;; \
       *) echo "unknown CUTOUT_MODEL $CUTOUT_MODEL" >&2; exit 1 ;; \
     esac \
- && echo "$want  /model.onnx" | sha256sum -c -
+ && echo "$want  /model.onnx" | sha256sum -c - \
+ && chmod 0644 /model.onnx
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
