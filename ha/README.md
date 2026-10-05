@@ -69,12 +69,16 @@ The lookup chain matches `avian/api/cutout.php`, slugged by scientific name
    collage and latest-bird image use the perched pose.
 2. `avian/assets/cutouts/<slug>.png`, a bundled background-removed photo.
 3. `/data/cutouts/<slug>.png`, a cutout this container made earlier.
-4. A fresh cutout. It fetches the species' Wikipedia lead image, falling back
-   to the photo BirdNET-Go attached to the detection (`BirdImage.URL`). It
-   follows only `wikimedia.org`, `wikipedia.org` and `avicommons.org`. The
-   U²-Net model (the one rembg uses, run directly through onnxruntime)
-   removes the background, then the result is cropped and cached together
-   with its attribution in `/data`.
+4. A fresh cutout. It takes the photo BirdNET-Go attached to the detection
+   (`BirdImage.URL`), usually a curated Avicommons portrait, fetched at
+   900 px rather than BirdNET-Go's 320. Failing that, it uses the species'
+   Wikipedia lead image, which is less reliable as a portrait (the Snowy Owl
+   lead shows an owl carrying a dead duck). It follows only `wikimedia.org`,
+   `wikipedia.org` and `avicommons.org`. The U²-Net model (the one rembg
+   uses, run directly through onnxruntime) removes the background, then the
+   result is cropped and cached together with its attribution in `/data`.
+   The model loads only for this step, so the container idles at a fraction
+   of the RAM.
    If no cutout comes out, the plain photo is cached instead. A species with
    no photo anywhere gets a handwritten name card, and it isn't looked up
    again for 24 h.

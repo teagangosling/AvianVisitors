@@ -5,9 +5,9 @@
   3. <data>/cutouts/<slug>.png             cached cutout from an earlier run
   4. fresh photo -> background removal -> cache
 
-Step 4 tries the Wikipedia lead image first, then the photo BirdNET-Go
-attached to the detection (BirdImage.URL), and only follows URLs on
-Wikimedia/Wikipedia/Avicommons hosts. Background removal runs a U^2-Net
+Step 4 tries the photo BirdNET-Go attached to the detection (BirdImage.URL,
+usually a curated Avicommons portrait) first, then the Wikipedia lead image,
+and only follows URLs on Wikimedia/Wikipedia/Avicommons hosts. Background removal runs a U^2-Net
 ONNX model directly through onnxruntime, the same model family rembg uses
 on the Pi, minus rembg's dependency tree. Without the model the plain photo
 is cached and used instead, so a species never ends up with no image.
@@ -109,13 +109,10 @@ class ImageResolver:
         self.wikipedia = wikipedia
         self.user_agent = user_agent
         self._lock = threading.Lock()  # one cold fetch + model run at a time
-        self._cutter: Cutter | None = None
-        if cutout_model and cutout_model.is_file():
-            try:
-                self._cutter = Cutter(cutout_model)
-                log.info("background removal enabled (%s)", cutout_model.name)
-            except Exception as exc:  # noqa: BLE001 - optional feature
-                log.warning("background removal disabled: %s", exc)
+        # The model is loaded per cold fetch and dropped afterwards: it costs
+        # ~600 MB resident, and a cutout is a once-per-species event.
+        self._model = cutout_model if cutout_model and cutout_model.is_file() else None
+        log.info("background removal %s", f"enabled ({self._model.name})" if self._model else "disabled")
 
     # ---- bundled / cached -------------------------------------------------
 
@@ -163,32 +160,51 @@ class ImageResolver:
 
     # ---- cold path --------------------------------------------------------
 
-    def _fetch_and_cut(self, det: Detection) -> ResolvedImage | None:
-        candidates: list[tuple[str, str]] = []
+    def _candidates(self, det: Detection):
+        """Photo sources, best first. BirdNET-Go's own BirdImage comes first:
+        its default provider, Avicommons, is a curated set of single-bird
+        portraits, while a Wikipedia lead image can be anything (the Snowy
+        Owl lead is an owl carrying off a duck)."""
+        if det.photo_url:
+            credit = ", ".join(x for x in (det.photo_author, det.photo_license) if x)
+            # BirdNET-Go asks Avicommons for 320 px; 900 px exists for every entry.
+            big = re.sub(r"(static\.avicommons\.org/[^?#]+)-(?:240|320|480)\.jpg$", r"\1-900.jpg", det.photo_url)
+            if big != det.photo_url:
+                yield big, credit
+            yield det.photo_url, credit
         if self.wikipedia:
             wiki = self._wikipedia_image(det.sci)
             if wiki:
-                candidates.append(wiki)
-        if det.photo_url:
-            credit = ", ".join(x for x in (det.photo_author, det.photo_license) if x)
-            candidates.append((det.photo_url, credit))
+                yield wiki
 
-        for url, credit in candidates:
+    def _fetch_and_cut(self, det: Detection) -> ResolvedImage | None:
+        photo = None
+        for url, credit in self._candidates(det):
             host = urllib.parse.urlparse(url).hostname or ""
             if not url.startswith("https://") or not ALLOWED_HOSTS.search(host):
                 log.info("skipping image host %s for %s", host, det.sci)
                 continue
-            photo = Image.open(io.BytesIO(self._get(url)))
-            photo.load()
-            if self._cutter:
-                cut = self._cutter.cut(photo)
-                if cut is not None:
-                    cut.thumbnail((800, 800), Image.LANCZOS)
-                    return self._store(self.cutouts / f"{det.slug}.png", cut, "photo-cutout", credit, url)
-            flat = photo.convert("RGB")
-            flat.thumbnail((800, 800), Image.LANCZOS)
-            return self._store(self.photos / f"{det.slug}.png", flat, "photo", credit, url)
-        return None
+            try:
+                photo = Image.open(io.BytesIO(self._get(url)))
+                photo.load()
+                break
+            except Exception as exc:  # noqa: BLE001 - try the next source
+                log.info("image source failed for %s (%s): %s", det.sci, host, exc)
+                photo = None
+        if photo is None:
+            return None
+        if self._model:
+            try:
+                cut = Cutter(self._model).cut(photo)  # session freed when it goes out of scope
+            except Exception as exc:  # noqa: BLE001 - fall back to the plain photo
+                log.warning("background removal failed for %s: %s", det.sci, exc)
+                cut = None
+            if cut is not None:
+                cut.thumbnail((800, 800), Image.LANCZOS)
+                return self._store(self.cutouts / f"{det.slug}.png", cut, "photo-cutout", credit, url)
+        flat = photo.convert("RGB")
+        flat.thumbnail((800, 800), Image.LANCZOS)
+        return self._store(self.photos / f"{det.slug}.png", flat, "photo", credit, url)
 
     def _store(self, path: Path, image: Image.Image, kind: str, credit: str, url: str) -> ResolvedImage:
         tmp = path.with_name(f".{path.name}.tmp")

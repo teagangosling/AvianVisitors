@@ -115,3 +115,15 @@ def test_collage_renders(tmp_path):
         png = collage.render(visitors, day=date(2026, 10, 5), width=900, height=600)
         im = Image.open(io.BytesIO(png))
         assert im.size == (900, 600)
+
+
+def test_photo_candidates_prefer_birdnet_go_avicommons_upsized(tmp_path):
+    r = ImageResolver(tmp_path / "a", tmp_path / "d", wikipedia=False, cutout_model=None)
+    owl = parse(json.dumps({**BIRDNET_GO, "ScientificName": "Bubo scandiacus", "BirdImage": {
+        "URL": "https://static.avicommons.org/snoowl1-7THu9xhIRDy289zO-320.jpg",
+        "AuthorName": "Patrick Randall", "LicenseName": "CC BY-NC-SA 2.0"}}))
+    assert [u for u, _ in r._candidates(owl)] == [
+        "https://static.avicommons.org/snoowl1-7THu9xhIRDy289zO-900.jpg",
+        "https://static.avicommons.org/snoowl1-7THu9xhIRDy289zO-320.jpg",
+    ]
+    assert next(r._candidates(owl))[1] == "Patrick Randall, CC BY-NC-SA 2.0"
