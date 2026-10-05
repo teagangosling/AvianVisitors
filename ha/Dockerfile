@@ -29,7 +29,7 @@ WORKDIR /app
 COPY ha/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY --from=model --chmod=0444 /model.onnx /app/models/cutout.onnx
+COPY --from=model /model.onnx /app/models/cutout.onnx
 COPY avian/frontend/fonts/Caveat.ttf avian/frontend/fonts/OFL-Caveat.txt /app/fonts/
 COPY avian/assets/cutouts /app/assets/cutouts
 COPY avian/assets/illustrations /app/assets/illustrations
