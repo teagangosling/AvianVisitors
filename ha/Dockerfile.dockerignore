@@ -1,0 +1,9 @@
+# Context is the repo root; send only what ha/Dockerfile copies.
+*
+!ha/requirements.txt
+!ha/avian_ha/**
+!avian/assets/cutouts/**
+!avian/assets/illustrations/**
+!avian/frontend/fonts/Caveat.ttf
+!avian/frontend/fonts/OFL-Caveat.txt
+**/__pycache__

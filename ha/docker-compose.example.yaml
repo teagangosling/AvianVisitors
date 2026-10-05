@@ -1,0 +1,33 @@
+# AvianVisitors HA bridge next to BirdNET-Go. Either paste the `avian-ha`
+# service into the compose file that runs BirdNET-Go, or run this file as its
+# own project. Secrets go in a .env beside it (MQTT_PASSWORD=...).
+name: avian-ha
+
+services:
+  avian-ha:
+    build:
+      context: https://github.com/teagangosling/AvianVisitors.git#ha-bridge
+      dockerfile: ha/Dockerfile
+    image: avian-visitors-ha:local
+    container_name: avian-ha
+    restart: unless-stopped
+    environment:
+      TZ: America/Vancouver          # decides when "today" rolls over
+      MQTT_HOST: 192.168.1.210       # same broker BirdNET-Go publishes to
+      MQTT_PORT: "1883"
+      MQTT_USER: avian
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+      DETECTION_TOPIC: birdnet       # BirdNET-Go realtime.mqtt.topic
+      MIN_CONFIDENCE: "0"            # BirdNET-Go already applies its threshold
+    volumes:
+      - ./data:/data                 # state + cached Wikipedia cutouts (small)
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
